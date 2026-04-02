@@ -17,7 +17,7 @@ export {
 
 export { AnyPermissions, DefinePermissions, Permissions, UserAbilityBuilder } from './interfaces/permissions.interface';
 
-export { OptionsForRoot, OptionsForFeature } from './interfaces/options.interface';
+export { OptionsForRoot, OptionsForFeature, AuthorizeContext } from './interfaces/options.interface';
 
 export { Actions, DefaultActions } from './actions.enum';
 

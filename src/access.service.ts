@@ -5,7 +5,7 @@ import { AnyObject, Subject } from './types';
 import { AuthorizableRequest } from './interfaces/request.interface';
 import { AbilityFactory } from './factories/ability.factory';
 import { AbilityMetadata } from './interfaces/ability-metadata.interface';
-import { OptionsForRoot } from './interfaces/options.interface';
+import { AuthorizeContext, OptionsForRoot } from './interfaces/options.interface';
 import { UserProxy } from './proxies/user.proxy';
 import { CaslConfig } from './casl.config';
 import { CASL_ROOT_OPTIONS } from './casl.constants';
@@ -80,7 +80,14 @@ export class AccessService {
     request: AuthorizableRequest,
     ability?: AbilityMetadata<Subject>,
   ): Promise<boolean> {
-    const { getUserFromRequest, superuserRole, conditionsProxyFactory, getFieldsFromRequest } = this.getRootOptions();
+    const {
+      getUserFromRequest,
+      superuserRole,
+      conditionsProxyFactory,
+      getFieldsFromRequest,
+      preCheck,
+      afterAuthorize,
+    } = this.getRootOptions();
 
     const user = this.abilityResolver.resolveUser(request, getUserFromRequest);
     const req = new RequestProxy(request);
@@ -89,17 +96,35 @@ export class AccessService {
       return false;
     }
 
+    const emitResult = async (allowed: boolean): Promise<boolean> => {
+      if (afterAuthorize) {
+        await afterAuthorize({
+          allowed,
+          user,
+          action: ability.action,
+          subject: ability.subject,
+          request,
+        } as AuthorizeContext);
+      }
+      return allowed;
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const createConditions = (abilities: AnyAbility, action: string, subj: any, forUser: AuthorizableUser) =>
       conditionsProxyFactory
         ? conditionsProxyFactory(abilities, action, subj, forUser)
         : new ConditionsProxy(abilities, action, subj);
 
+    // Pre-check: early deny based on custom business logic (e.g., role requirements)
+    if (preCheck && !(await preCheck(user, request))) {
+      return emitResult(false);
+    }
+
     // Always allow access for superuser
     if (this.abilityResolver.isSuperuser(user, superuserRole)) {
       const userAbilities = await this.abilityResolver.resolveAbility(user, Ability, request);
       req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
-      return true;
+      return emitResult(true);
     }
 
     let userAbilities = await this.abilityResolver.resolveAbility(user, Ability, request);
@@ -108,7 +133,7 @@ export class AccessService {
     // If no relevant rules have conditions or no subject hook exists, check against subject class
     if (!relevantRules.some((rule) => rule.conditions) || !ability.subjectHook) {
       req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
-      return this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject);
+      return emitResult(this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject));
     }
 
     // Otherwise try to obtain subject
@@ -117,7 +142,7 @@ export class AccessService {
 
     if (!subjectInstance) {
       req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
-      return this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject);
+      return emitResult(this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject));
     }
 
     const userProxy = new UserProxy(request, getUserFromRequest);
@@ -141,8 +166,8 @@ export class AccessService {
       getFieldsFromRequest,
     );
 
-    if (cannotActivateSomeField) return false;
+    if (cannotActivateSomeField) return emitResult(false);
 
-    return this.accessEvaluator.evaluate(userAbilities, ability.action, actualSubject);
+    return emitResult(this.accessEvaluator.evaluate(userAbilities, ability.action, actualSubject));
   }
 }

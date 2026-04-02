@@ -21,6 +21,17 @@ export interface OptionsForRoot<
   getContextFromRequest?: (request: Request) => Context;
   conditionsProxyFactory?: (abilities: AnyAbility, action: string, subject: Subject, user: User) => ConditionsProxy;
   getFieldsFromRequest?: (request: AuthorizableRequest<User>) => string[];
+  preCheck?: (user: User, request: Request) => boolean | Promise<boolean>;
+  afterAuthorize?: (context: AuthorizeContext<User>) => void | Promise<void>;
+}
+
+export interface AuthorizeContext<User extends AuthorizableUser<unknown, unknown> = AuthorizableUser> {
+  allowed: boolean;
+  user: User;
+  action: string;
+  subject: Subject;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  request: any;
 }
 
 export interface OptionsForFeature<

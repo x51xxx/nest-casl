@@ -566,6 +566,194 @@ describe('AccessService', () => {
       });
     });
 
+    describe('preCheck', () => {
+      it('denies access when preCheck returns false', async () => {
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          preCheck: () => false,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.read, subject: Post };
+
+        expect(await accessService.canActivateAbility(request, abilityMetadata)).toBe(false);
+      });
+
+      it('allows access when preCheck returns true', async () => {
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          preCheck: () => true,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.read, subject: Post };
+
+        expect(await accessService.canActivateAbility(request, abilityMetadata)).toBe(true);
+      });
+
+      it('supports async preCheck', async () => {
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          preCheck: async () => false,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.read, subject: Post };
+
+        expect(await accessService.canActivateAbility(request, abilityMetadata)).toBe(false);
+      });
+
+      it('receives user and request in preCheck', async () => {
+        const preCheckSpy = vi.fn().mockReturnValue(true);
+        const testUser = { id: 'userId', roles: [Roles.customer] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => testUser,
+          preCheck: preCheckSpy,
+        });
+
+        const request = { user: testUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.read, subject: Post };
+
+        await accessService.canActivateAbility(request, abilityMetadata);
+        expect(preCheckSpy).toHaveBeenCalledWith(testUser, request);
+      });
+
+      it('skips preCheck for superuser when preCheck is not defined', async () => {
+        const adminUser = { id: 'admin', roles: [Roles.admin] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => adminUser,
+        });
+
+        const request = { user: adminUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.delete, subject: Post };
+
+        expect(await accessService.canActivateAbility(request, abilityMetadata)).toBe(true);
+      });
+
+      it('preCheck runs before superuser check', async () => {
+        const adminUser = { id: 'admin', roles: [Roles.admin] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => adminUser,
+          preCheck: () => false, // deny even admin
+        });
+
+        const request = { user: adminUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = { action: Actions.delete, subject: Post };
+
+        expect(await accessService.canActivateAbility(request, abilityMetadata)).toBe(false);
+      });
+    });
+
+    describe('afterAuthorize', () => {
+      it('calls afterAuthorize with allowed=true on success', async () => {
+        const afterSpy = vi.fn();
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          afterAuthorize: afterSpy,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.read, subject: Post });
+
+        expect(afterSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ allowed: true, action: Actions.read, subject: Post }),
+        );
+      });
+
+      it('calls afterAuthorize with allowed=false on deny', async () => {
+        const afterSpy = vi.fn();
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          afterAuthorize: afterSpy,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.delete, subject: Post });
+
+        expect(afterSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ allowed: false, action: Actions.delete }),
+        );
+      });
+
+      it('calls afterAuthorize with allowed=false on preCheck deny', async () => {
+        const afterSpy = vi.fn();
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          preCheck: () => false,
+          afterAuthorize: afterSpy,
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.read, subject: Post });
+
+        expect(afterSpy).toHaveBeenCalledWith(expect.objectContaining({ allowed: false }));
+      });
+
+      it('calls afterAuthorize with allowed=true for superuser', async () => {
+        const afterSpy = vi.fn();
+        const adminUser = { id: 'admin', roles: [Roles.admin] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => adminUser,
+          afterAuthorize: afterSpy,
+        });
+
+        const request = { user: adminUser, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.delete, subject: Post });
+
+        expect(afterSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ allowed: true, user: adminUser }),
+        );
+      });
+
+      it('includes user and request in afterAuthorize context', async () => {
+        const afterSpy = vi.fn();
+        const testUser = { id: 'userId', roles: [Roles.customer] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => testUser,
+          afterAuthorize: afterSpy,
+        });
+
+        const request = { user: testUser, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.read, subject: Post });
+
+        const ctx = afterSpy.mock.calls[0][0];
+        expect(ctx.user).toBe(testUser);
+        expect(ctx.request).toBe(request);
+      });
+
+      it('supports async afterAuthorize', async () => {
+        const log: string[] = [];
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => ({ id: 'userId', roles: [Roles.customer] }),
+          afterAuthorize: async (ctx) => {
+            log.push(`${ctx.action}:${ctx.allowed}`);
+          },
+        });
+
+        const request = { user: { id: 'userId', roles: [Roles.customer] }, casl: { ...defaultCaslCache } };
+        await accessService.canActivateAbility(request, { action: Actions.read, subject: Post });
+
+        expect(log).toEqual(['read:true']);
+      });
+    });
+
     describe('field restriction', () => {
       user = { id: 'userId', roles: [Roles.customer] };
 
