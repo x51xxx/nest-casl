@@ -5,7 +5,8 @@ export { AuthorizableUser } from './interfaces/authorizable-user.interface';
 export { AuthorizableRequest } from './interfaces/request.interface';
 export { AuthorizableRequest as Request } from './interfaces/request.interface';
 
-export { CaslConditions, CaslSubject, CaslUser, UseAbility } from './decorators';
+export { CaslConditions, CaslFilter, CaslSubject, CaslUser, UseAbility } from './decorators';
+export { UseAbilityOptions } from './decorators/use-ability';
 
 export {
   SubjectBeforeFilterHook,
@@ -14,7 +15,7 @@ export {
   UserBeforeFilterTuple,
 } from './interfaces/hooks.interface';
 
-export { AnyPermissions, DefinePermissions, Permissions } from './interfaces/permissions.interface';
+export { AnyPermissions, DefinePermissions, Permissions, UserAbilityBuilder } from './interfaces/permissions.interface';
 
 export { OptionsForRoot, OptionsForFeature } from './interfaces/options.interface';
 
@@ -31,3 +32,5 @@ export { AccessGuard } from './access.guard';
 export { AccessService } from './access.service';
 
 export { InferSubjects } from '@casl/ability';
+
+export type { AnyClass, AnyObject, Subject } from './types';

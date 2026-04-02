@@ -40,4 +40,55 @@ describe('UseAbility', () => {
       subjectHook: TestSubjectHook,
     });
   });
+
+  it('sets metadata with options object containing hook and paramKey', () => {
+    class TestClass {
+      handler() {}
+    }
+    const decorator = UseAbility(Actions.update, TestSubject, {
+      hook: TestSubjectHook,
+      paramKey: 'eventId',
+    });
+    decorator(TestClass.prototype, 'handler', Object.getOwnPropertyDescriptor(TestClass.prototype, 'handler')!);
+    const metadata = Reflect.getMetadata(CASL_META_ABILITY, TestClass.prototype.handler);
+    expect(metadata).toEqual({
+      action: Actions.update,
+      subject: TestSubject,
+      subjectHook: TestSubjectHook,
+      paramKey: 'eventId',
+    });
+  });
+
+  it('sets metadata with options object containing only paramKey', () => {
+    class TestClass {
+      handler() {}
+    }
+    const decorator = UseAbility(Actions.read, TestSubject, {
+      paramKey: 'id',
+    });
+    decorator(TestClass.prototype, 'handler', Object.getOwnPropertyDescriptor(TestClass.prototype, 'handler')!);
+    const metadata = Reflect.getMetadata(CASL_META_ABILITY, TestClass.prototype.handler);
+    expect(metadata).toEqual({
+      action: Actions.read,
+      subject: TestSubject,
+      subjectHook: undefined,
+      paramKey: 'id',
+    });
+  });
+
+  it('still supports tuple hook as third argument', () => {
+    class TestClass {
+      handler() {}
+    }
+    class SomeService {}
+    const tupleHook: [typeof SomeService, () => Promise<TestSubject>] = [SomeService, async () => new TestSubject()];
+    const decorator = UseAbility(Actions.update, TestSubject, tupleHook);
+    decorator(TestClass.prototype, 'handler', Object.getOwnPropertyDescriptor(TestClass.prototype, 'handler')!);
+    const metadata = Reflect.getMetadata(CASL_META_ABILITY, TestClass.prototype.handler);
+    expect(metadata).toEqual({
+      action: Actions.update,
+      subject: TestSubject,
+      subjectHook: tupleHook,
+    });
+  });
 });

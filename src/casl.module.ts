@@ -49,9 +49,18 @@ export class CaslModule {
     User extends AuthorizableUser<unknown, unknown> = AuthorizableUser<Roles>,
     Request = AuthorizableRequest<User>,
   >(options: OptionsForRoot<Roles, User, Request>): DynamicModule {
+    // Keep Reflect metadata for backward compatibility (deprecated)
     Reflect.defineMetadata(CASL_ROOT_OPTIONS, options, CaslConfig);
     return {
       module: CaslModule,
+      global: true,
+      providers: [
+        {
+          provide: CASL_ROOT_OPTIONS,
+          useValue: options,
+        },
+      ],
+      exports: [CASL_ROOT_OPTIONS],
     };
   }
 
@@ -62,19 +71,21 @@ export class CaslModule {
   >(options: OptionsForRootAsync<Roles, User, Request>): DynamicModule {
     return {
       module: CaslModule,
+      global: true,
       imports: options.imports,
       providers: [
         {
           provide: CASL_ROOT_OPTIONS,
           useFactory: async (...args) => {
             const caslRootOptions = await options.useFactory(...args);
+            // Keep Reflect metadata for backward compatibility (deprecated)
             Reflect.defineMetadata(CASL_ROOT_OPTIONS, caslRootOptions, CaslConfig);
-
             return caslRootOptions;
           },
           inject: options.inject,
         },
       ],
+      exports: [CASL_ROOT_OPTIONS],
     };
   }
 }

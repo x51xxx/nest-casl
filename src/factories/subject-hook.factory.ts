@@ -1,4 +1,4 @@
-import { AnyClass, AnyObject } from '@casl/ability/dist/types/types';
+import { AnyClass, AnyObject } from '../types';
 import { ModuleRef } from '@nestjs/core';
 
 import { AuthorizableRequest } from '../interfaces/request.interface';

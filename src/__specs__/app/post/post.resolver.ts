@@ -6,6 +6,7 @@ import {
   Actions,
   ConditionsProxy,
   CaslConditions,
+  CaslFilter,
   CaslSubject,
   CaslUser,
   UseAbility,
@@ -136,5 +137,12 @@ export class PostResolver {
     @CaslConditions() conditions: ConditionsProxy,
   ) {
     return this.postService.update(input, conditions.toSql());
+  }
+
+  @Mutation(() => Post)
+  @UseGuards(AccessGuard)
+  @UseAbility(Actions.update, Post, PostHook)
+  async updatePostFilterParam(@Args('input') input: UpdatePostInput, @CaslFilter() filter: Record<string, unknown>) {
+    return this.postService.update(input, filter as any);
   }
 }

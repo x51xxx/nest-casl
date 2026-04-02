@@ -1,4 +1,4 @@
-import { AnyObject } from '@casl/ability/dist/types/types';
+import { AnyObject } from '../types';
 
 import { AuthorizableRequest } from '../interfaces/request.interface';
 import { CaslRequestCache } from '../interfaces/casl-request-cache.interface';
@@ -62,5 +62,9 @@ export class RequestProxy<User extends AuthorizableUser<unknown, unknown> = Auth
 
   public setSubjectHook(hook: SubjectBeforeFilterHook<Subject>): void {
     this.cached.hooks.subject = hook;
+  }
+
+  public getParams(): Record<string, unknown> {
+    return this.cached.params ?? this.request.params ?? {};
   }
 }

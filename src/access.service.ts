@@ -1,60 +1,73 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
 import { Ability, AnyAbility, subject } from '@casl/ability';
-import { AnyObject, Subject } from '@casl/ability/dist/types/types';
-import { flatten } from 'flat';
+import { AnyObject, Subject } from './types';
 
 import { AuthorizableRequest } from './interfaces/request.interface';
 import { AbilityFactory } from './factories/ability.factory';
 import { AbilityMetadata } from './interfaces/ability-metadata.interface';
+import { OptionsForRoot } from './interfaces/options.interface';
 import { UserProxy } from './proxies/user.proxy';
 import { CaslConfig } from './casl.config';
+import { CASL_ROOT_OPTIONS } from './casl.constants';
 import { AuthorizableUser } from './interfaces/authorizable-user.interface';
 import { RequestProxy } from './proxies/request.proxy';
 import { ConditionsProxy } from './proxies/conditions.proxy';
+import { AbilityResolver } from './services/ability-resolver';
+import { AccessEvaluator } from './services/access-evaluator';
+import { FieldAccessChecker } from './services/field-access-checker';
 
 @Injectable()
 export class AccessService {
-  constructor(private abilityFactory: AbilityFactory) {}
+  private readonly abilityResolver: AbilityResolver;
+  private readonly accessEvaluator: AccessEvaluator;
+  private readonly fieldAccessChecker: FieldAccessChecker;
 
-  public getAbility<User extends AuthorizableUser<string, unknown> = AuthorizableUser>(user: User): AnyAbility {
-    return this.abilityFactory.createForUser(user);
+  constructor(
+    private abilityFactory: AbilityFactory,
+    @Optional() @Inject(CASL_ROOT_OPTIONS) private readonly rootOptions?: OptionsForRoot,
+  ) {
+    this.abilityResolver = new AbilityResolver(abilityFactory);
+    this.accessEvaluator = new AccessEvaluator();
+    this.fieldAccessChecker = new FieldAccessChecker();
   }
 
-  public hasAbility<User extends AuthorizableUser<string, unknown> = AuthorizableUser>(
-    user: User,
-    action: string,
-    subject: Subject,
-    field?: string,
-  ): boolean {
-    // No user - no access
-    if (!user) {
+  private getRootOptions(): OptionsForRoot & {
+    getUserFromRequest: (request: AuthorizableRequest) => AuthorizableUser | undefined;
+  } {
+    if (this.rootOptions) {
+      const opts = this.rootOptions;
+      if (!opts.getUserFromRequest) {
+        return { ...opts, getUserFromRequest: (request: AuthorizableRequest) => request.user };
+      }
+      return opts as OptionsForRoot & {
+        getUserFromRequest: (request: AuthorizableRequest) => AuthorizableUser | undefined;
+      };
+    }
+    return CaslConfig.getRootOptions();
+  }
+
+  public async getAbility(user: AuthorizableUser): Promise<AnyAbility> {
+    return this.abilityResolver.resolveAbility(user, Ability);
+  }
+
+  public async hasAbility(user: AuthorizableUser, action: string, subject: Subject, field?: string): Promise<boolean> {
+    if (!user || !action || !subject) {
       return false;
     }
 
-    // User exists but no ability metadata - deny access
-    if (!action || !subject) {
-      return false;
-    }
+    const { superuserRole } = this.getRootOptions();
 
-    const { superuserRole } = CaslConfig.getRootOptions();
-    const userAbilities = this.abilityFactory.createForUser(user);
-
-    // Always allow access for superuser
-    if (superuserRole && user.roles?.includes(superuserRole)) {
+    if (this.abilityResolver.isSuperuser(user, superuserRole)) {
       return true;
     }
 
+    const userAbilities = await this.abilityResolver.resolveAbility(user, Ability);
     return userAbilities.can(action, subject, field);
   }
 
-  public assertAbility<User extends AuthorizableUser<string, unknown> = AuthorizableUser>(
-    user: User,
-    action: string,
-    subject: Subject,
-    field?: string,
-  ): void {
-    if (!this.hasAbility(user, action, subject, field)) {
-      const userAbilities = this.abilityFactory.createForUser(user, Ability);
+  public async assertAbility(user: AuthorizableUser, action: string, subject: Subject, field?: string): Promise<void> {
+    if (!(await this.hasAbility(user, action, subject, field))) {
+      const userAbilities = await this.abilityResolver.resolveAbility(user, Ability);
       const relatedRules = userAbilities.rulesFor(action, typeof subject === 'object' ? subject.constructor : subject);
       if (relatedRules.some((rule) => rule.conditions)) {
         throw new NotFoundException();
@@ -67,36 +80,35 @@ export class AccessService {
     request: AuthorizableRequest,
     ability?: AbilityMetadata<Subject>,
   ): Promise<boolean> {
-    const { getUserFromRequest, superuserRole } = CaslConfig.getRootOptions();
+    const { getUserFromRequest, superuserRole, conditionsProxyFactory, getFieldsFromRequest } = this.getRootOptions();
 
-    const userProxy = new UserProxy(request, getUserFromRequest);
+    const user = this.abilityResolver.resolveUser(request, getUserFromRequest);
     const req = new RequestProxy(request);
 
-    // Attempt to get user from request
-    const user = userProxy.getFromRequest();
-
-    // No user - no access
-    if (!user) {
+    if (!user || !ability) {
       return false;
     }
 
-    // User exists but no ability metadata - deny access
-    if (!ability) {
-      return false;
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const createConditions = (abilities: AnyAbility, action: string, subj: any, forUser: AuthorizableUser) =>
+      conditionsProxyFactory
+        ? conditionsProxyFactory(abilities, action, subj, forUser)
+        : new ConditionsProxy(abilities, action, subj);
 
     // Always allow access for superuser
-    if (superuserRole && user.roles?.includes(superuserRole)) {
+    if (this.abilityResolver.isSuperuser(user, superuserRole)) {
+      const userAbilities = await this.abilityResolver.resolveAbility(user, Ability, request);
+      req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
       return true;
     }
 
-    let userAbilities = this.abilityFactory.createForUser(user, Ability);
+    let userAbilities = await this.abilityResolver.resolveAbility(user, Ability, request);
     const relevantRules = userAbilities.rulesFor(ability.action, ability.subject);
 
     // If no relevant rules have conditions or no subject hook exists, check against subject class
     if (!relevantRules.some((rule) => rule.conditions) || !ability.subjectHook) {
-      req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
-      return userAbilities.can(ability.action, ability.subject);
+      req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
+      return this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject);
     }
 
     // Otherwise try to obtain subject
@@ -104,44 +116,33 @@ export class AccessService {
     req.setSubject(subjectInstance);
 
     if (!subjectInstance) {
-      req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
-      return userAbilities.can(ability.action, ability.subject);
+      req.setConditions(createConditions(userAbilities, ability.action, ability.subject, user));
+      return this.accessEvaluator.evaluate(userAbilities, ability.action, ability.subject);
     }
 
+    const userProxy = new UserProxy(request, getUserFromRequest);
     const finalUser = await userProxy.get();
     if (finalUser && finalUser !== userProxy.getFromRequest()) {
-      userAbilities = this.abilityFactory.createForUser(finalUser);
+      userAbilities = await this.abilityResolver.resolveAbility(finalUser, Ability, request);
     }
 
-    // Set conditions after user hook so they reflect the final user's abilities
-    req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
+    // Set conditions after user hook — use finalUser so factory gets the enriched user
+    req.setConditions(createConditions(userAbilities, ability.action, ability.subject, finalUser ?? user));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actualSubject = subject(ability.subject as any, subjectInstance);
 
-    const cannotActivateSomeField = this.isThereAnyFieldRestriction(
-      request.body,
+    const cannotActivateSomeField = await this.fieldAccessChecker.check(
+      userAbilities,
+      request,
       ability.action,
       actualSubject,
       finalUser,
+      getFieldsFromRequest,
     );
 
     if (cannotActivateSomeField) return false;
 
-    // and match agains subject instance
-    return userAbilities.can(ability.action, actualSubject);
-  }
-
-  private isThereAnyFieldRestriction(
-    body: Record<string, string>,
-    action: string,
-    subject: AnyObject,
-    user?: AuthorizableUser<string, string>,
-  ) {
-    if (!user) return true;
-
-    const subjectFields = Object.keys(flatten(body || {}));
-
-    return subjectFields.some((field) => !this.hasAbility(user, action, subject, field));
+    return this.accessEvaluator.evaluate(userAbilities, ability.action, actualSubject);
   }
 }

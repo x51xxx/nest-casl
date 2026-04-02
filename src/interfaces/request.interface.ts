@@ -1,4 +1,4 @@
-import { AnyObject } from '@casl/ability/dist/types/types';
+import { AnyObject } from '../types';
 
 import { AuthorizableUser } from './authorizable-user.interface';
 import { CaslRequestCache } from './casl-request-cache.interface';

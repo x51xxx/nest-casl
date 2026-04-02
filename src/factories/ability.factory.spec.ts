@@ -60,27 +60,27 @@ describe('AbilityFactory', () => {
 
   it("everyone's rules applied to customer", async () => {
     const user = { id: 'userId', roles: [Roles.customer] };
-    const ability = abilityFactory.createForUser(user);
+    const ability = await abilityFactory.createForUser(user);
     expect(ability.can(Actions.read, Post)).toBe(true);
   });
 
   it('every is an alias for everyone', async () => {
     abilityFactory = await getAbilityFactory(permissionsEveryAlias);
     const user = { id: 'userId', roles: [Roles.customer] };
-    const ability = abilityFactory.createForUser(user);
+    const ability = await abilityFactory.createForUser(user);
     expect(ability.can(Actions.read, Post)).toBe(true);
   });
 
   it('works without everyone role', async () => {
     abilityFactory = await getAbilityFactory(permissionsNoEveryone);
     const user = { id: 'userId', roles: [Roles.customer] };
-    const ability = abilityFactory.createForUser(user);
+    const ability = await abilityFactory.createForUser(user);
     expect(ability.can(Actions.read, Post)).toBe(false);
   });
 
   it('operator inherits rules from user', async () => {
     const user = { id: 'userId', roles: [Roles.operator] };
-    const ability = abilityFactory.createForUser(user);
+    const ability = await abilityFactory.createForUser(user);
     expect(ability.can(Actions.read, Post)).toBe(true);
     expect(ability.can(Actions.create, Post)).toBe(true);
     expect(ability.can(Actions.update, Post)).toBe(true);
@@ -89,5 +89,61 @@ describe('AbilityFactory', () => {
 
   it('null conditions matcher always true', () => {
     expect(nullConditionsMatcher()()).toBeTruthy();
+  });
+
+  describe('context in permissions', () => {
+    it('passes context from request via getContextFromRequest', async () => {
+      const { CaslConfig } = await import('../casl.config');
+      const { vi } = await import('vitest');
+
+      const contextPermissions: Permissions<Roles, Post, Actions> = {
+        customer({ context, can }) {
+          const ctx = context as { accountId: number };
+          can(Actions.read, Post, { userId: String(ctx.accountId) } as any);
+        },
+      };
+
+      const factory = await getAbilityFactory(contextPermissions);
+
+      vi.spyOn(CaslConfig, 'getRootOptions').mockImplementation(() => ({
+        getUserFromRequest: () => undefined,
+        getContextFromRequest: (req: any) => ({ accountId: req.accountId }),
+      }));
+
+      const user = { id: 'userId', roles: [Roles.customer] };
+      const mockRequest = {
+        accountId: 42,
+        casl: { hooks: { user: { run: async () => undefined }, subject: { run: async () => undefined } } },
+      } as any;
+      const ability = await factory.createForUser(user, undefined, mockRequest);
+
+      expect(ability.rules).toEqual([{ action: 'read', subject: Post, conditions: { userId: '42' } }]);
+
+      vi.restoreAllMocks();
+    });
+
+    it('defaults context to empty object when no getContextFromRequest', async () => {
+      const { CaslConfig } = await import('../casl.config');
+      const { vi } = await import('vitest');
+
+      const contextPermissions: Permissions<Roles, Post, Actions> = {
+        customer({ context, can }) {
+          // context should be {} — no error accessing it
+          expect(context).toEqual({});
+          can(Actions.read, Post);
+        },
+      };
+
+      const factory = await getAbilityFactory(contextPermissions);
+
+      vi.spyOn(CaslConfig, 'getRootOptions').mockImplementation(() => ({
+        getUserFromRequest: () => undefined,
+      }));
+
+      const user = { id: 'userId', roles: [Roles.customer] };
+      await factory.createForUser(user);
+
+      vi.restoreAllMocks();
+    });
   });
 });

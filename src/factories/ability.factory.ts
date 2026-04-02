@@ -1,11 +1,13 @@
 import { Ability, AnyAbility, PureAbility, Subject } from '@casl/ability';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DefaultActions } from '../actions.enum';
 
-import { OptionsForFeature } from '../interfaces/options.interface';
+import { OptionsForFeature, OptionsForRoot } from '../interfaces/options.interface';
 import { AuthorizableUser } from '../interfaces/authorizable-user.interface';
+import { AuthorizableRequest } from '../interfaces/request.interface';
 import { UserAbilityBuilder } from '../interfaces/permissions.interface';
-import { CASL_FEATURE_OPTIONS } from '../casl.constants';
+import { CaslConfig } from '../casl.config';
+import { CASL_FEATURE_OPTIONS, CASL_ROOT_OPTIONS } from '../casl.constants';
 
 export const nullConditionsMatcher = () => (): boolean => true;
 
@@ -19,11 +21,16 @@ export class AbilityFactory<
   constructor(
     @Inject(CASL_FEATURE_OPTIONS)
     private readonly featureOptions: OptionsForFeature<Roles, Subjects, Actions, User>,
+    @Optional() @Inject(CASL_ROOT_OPTIONS) private readonly rootOptions?: OptionsForRoot,
   ) {}
 
-  createForUser(user: User, abilityClass = Ability): AnyAbility {
-    const { permissions } = this.featureOptions;
-    const ability = new UserAbilityBuilder<Subjects, Actions, User>(user, permissions, abilityClass);
+  async createForUser(user: User, abilityClass = Ability, request?: AuthorizableRequest): Promise<AnyAbility> {
+    const { permissions, onBuildAbility } = this.featureOptions;
+    const opts = this.rootOptions || CaslConfig.getRootOptions();
+    const { getContextFromRequest } = opts;
+
+    const context = request && getContextFromRequest ? getContextFromRequest(request) : {};
+    const ability = new UserAbilityBuilder<Subjects, Actions, User>(user, permissions, abilityClass, context);
     const everyone = permissions['everyone'] || permissions['every'];
 
     if (everyone) {
@@ -33,6 +40,10 @@ export class AbilityFactory<
     user.roles?.forEach((role) => {
       ability.permissionsFor(role);
     });
+
+    if (onBuildAbility) {
+      await onBuildAbility(ability, request as unknown as AuthorizableRequest<User>);
+    }
 
     // For PureAbility skip conditions check, conditions will be available for filtering through @CaslConditions() param
     if (abilityClass === PureAbility) {

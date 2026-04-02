@@ -15,7 +15,7 @@ import { Roles } from './app.roles';
       autoSchemaFile: true,
       useGlobalPrefix: false,
       playground: false,
-      context: ({ req }) => ({ req }),
+      context: ({ req }: { req: unknown }) => ({ req }),
     }),
     CaslModule.forRoot<Roles>({
       superuserRole: Roles.admin,

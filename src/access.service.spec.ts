@@ -17,7 +17,8 @@ import { SubjectBeforeFilterHook, UserBeforeFilterHook } from 'interfaces/hooks.
 import { AbilityMetadata } from 'interfaces/ability-metadata.interface';
 import { User } from '__specs__/app/user/dtos/user.dto';
 import { AuthorizableRequest } from './interfaces/request.interface';
-import { AnyClass } from '@casl/ability/dist/types/types';
+import { AnyClass } from './types';
+import { ConditionsProxy } from './proxies/conditions.proxy';
 
 const permissions: Permissions<Roles, Post> = {
   everyone({ can }) {
@@ -66,7 +67,7 @@ describe('AccessService', () => {
     });
 
     it('returns user abilities', async () => {
-      expect(accessService.getAbility(user).rules).toEqual([
+      expect((await accessService.getAbility(user)).rules).toEqual([
         { action: 'read', subject: Post },
         { action: 'manage', subject: Post },
       ]);
@@ -79,44 +80,44 @@ describe('AccessService', () => {
     });
 
     it('allows access to delete action for operator', async () => {
-      expect(accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
+      expect(await accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
     });
 
     it('denies access to delete action for customer', async () => {
       user = { id: 'userId', roles: [Roles.customer] };
-      expect(accessService.hasAbility(user, Actions.delete, Post)).toBeFalsy();
+      expect(await accessService.hasAbility(user, Actions.delete, Post)).toBeFalsy();
     });
 
     it('allows access to update not restricted field for customer', async () => {
       user = { id: 'userId', roles: [Roles.customer] };
-      expect(accessService.hasAbility(user, Actions.update, Post, 'title')).toBeTruthy();
+      expect(await accessService.hasAbility(user, Actions.update, Post, 'title')).toBeTruthy();
     });
 
     it('denies access to update restricted field for customer', async () => {
       user = { id: 'userId', roles: [Roles.customer] };
-      expect(accessService.hasAbility(user, Actions.update, Post, 'userId')).toBeFalsy();
+      expect(await accessService.hasAbility(user, Actions.update, Post, 'userId')).toBeFalsy();
     });
 
     it('can check ability', async () => {
-      expect(accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
-      expect(accessService.hasAbility(user, Actions.update, Post, 'userId')).toBeTruthy();
+      expect(await accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
+      expect(await accessService.hasAbility(user, Actions.update, Post, 'userId')).toBeTruthy();
     });
 
     it('deny access without user', async () => {
-      expect(accessService.hasAbility(undefined as never, Actions.delete, Post)).toBeFalsy();
+      expect(await accessService.hasAbility(undefined as never, Actions.delete, Post)).toBeFalsy();
     });
 
     it('deny access without action', async () => {
-      expect(accessService.hasAbility(user, undefined as never, Post)).toBeFalsy();
+      expect(await accessService.hasAbility(user, undefined as never, Post)).toBeFalsy();
     });
 
     it('deny access without subject', async () => {
-      expect(accessService.hasAbility(user, Actions.delete, undefined as never)).toBeFalsy();
+      expect(await accessService.hasAbility(user, Actions.delete, undefined as never)).toBeFalsy();
     });
 
     it('allow access to superuser', async () => {
       user = { id: 'userId', roles: [Roles.admin] };
-      expect(accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
+      expect(await accessService.hasAbility(user, Actions.delete, Post)).toBeTruthy();
     });
   });
 
@@ -126,31 +127,33 @@ describe('AccessService', () => {
     });
 
     it('throw UnauthorizedException for ability without conditions and class subject', async () => {
-      expect(() => accessService.assertAbility(user, Actions.delete, Post)).toThrowError(UnauthorizedException);
+      await expect(accessService.assertAbility(user, Actions.delete, Post)).rejects.toThrowError(UnauthorizedException);
     });
 
     it('throw UnauthorizedException for ability without conditions and instance subject', async () => {
       const post = new Post();
-      expect(() => accessService.assertAbility(user, Actions.delete, post)).toThrowError(UnauthorizedException);
+      await expect(accessService.assertAbility(user, Actions.delete, post)).rejects.toThrowError(UnauthorizedException);
     });
 
     it('throw NotFoundException for ability with conditions and instance subject', async () => {
       user = { id: 'otherUserId', roles: [Roles.customer] };
       const post = new Post();
-      expect(() => accessService.assertAbility(user, Actions.update, post)).toThrowError(NotFoundException);
+      await expect(accessService.assertAbility(user, Actions.update, post)).rejects.toThrowError(NotFoundException);
     });
 
     it('do not throw for ability with conditions and class subject', async () => {
       user = { id: 'otherUserId', roles: [Roles.customer] };
-      expect(() => accessService.assertAbility(user, Actions.update, Post));
+      await expect(accessService.assertAbility(user, Actions.update, Post)).resolves.not.toThrow();
     });
 
     it('throw NotFoundException for ability with restricted field', async () => {
-      expect(() => accessService.assertAbility(user, Actions.update, Post, 'userId')).toThrowError(NotFoundException);
+      await expect(accessService.assertAbility(user, Actions.update, Post, 'userId')).rejects.toThrowError(
+        NotFoundException,
+      );
     });
 
     it('do not throw for ability with not restricted field', async () => {
-      expect(() => accessService.assertAbility(user, Actions.update, Post, 'title')).not.toThrowError();
+      await expect(accessService.assertAbility(user, Actions.update, Post, 'title')).resolves.not.toThrow();
     });
   });
 
@@ -494,6 +497,73 @@ describe('AccessService', () => {
 
       await svc.canActivateAbility(request, abilityMetadata);
       expect(runSpy).not.toHaveBeenCalled();
+    });
+
+    describe('conditionsProxyFactory', () => {
+      it('uses custom factory to create conditions proxy', async () => {
+        const testUser = { id: 'otherUserId', roles: [Roles.customer] };
+        const customProxy = new ConditionsProxy(null as any, 'read', Post);
+        const factory = vi.fn().mockReturnValue(customProxy);
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => testUser,
+          conditionsProxyFactory: factory,
+        });
+
+        const request = { user: testUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = {
+          action: Actions.update,
+          subject: Post,
+          subjectHook: NullSubjectHook,
+        };
+
+        await accessService.canActivateAbility(request, abilityMetadata);
+        expect(factory).toHaveBeenCalled();
+        expect(request.casl.conditions).toBe(customProxy);
+      });
+
+      it('sets conditions via factory for superuser too', async () => {
+        const adminUser = { id: 'adminId', roles: [Roles.admin] };
+        const customProxy = new ConditionsProxy(null as any, 'read', Post);
+        const factory = vi.fn().mockReturnValue(customProxy);
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => adminUser,
+          conditionsProxyFactory: factory,
+        });
+
+        const request = { user: adminUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = {
+          action: Actions.read,
+          subject: Post,
+        };
+
+        const result = await accessService.canActivateAbility(request, abilityMetadata);
+        expect(result).toBe(true);
+        expect(factory).toHaveBeenCalled();
+        expect(request.casl.conditions).toBe(customProxy);
+      });
+
+      it('falls back to default ConditionsProxy when no factory', async () => {
+        const testUser = { id: 'otherUserId', roles: [Roles.customer] };
+
+        vi.mocked(CaslConfig.getRootOptions).mockReturnValue({
+          superuserRole: Roles.admin,
+          getUserFromRequest: () => testUser,
+        });
+
+        const request = { user: testUser, casl: { ...defaultCaslCache } };
+        const abilityMetadata = {
+          action: Actions.update,
+          subject: Post,
+          subjectHook: NullSubjectHook,
+        };
+
+        await accessService.canActivateAbility(request, abilityMetadata);
+        expect(request.casl.conditions).toBeInstanceOf(ConditionsProxy);
+      });
     });
 
     describe('field restriction', () => {

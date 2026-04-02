@@ -64,9 +64,9 @@ describe('CaslModule', () => {
 
       const accessService = moduleRef.get(AccessService);
       const user = { id: 'userId', roles: [Roles.customer] };
-      expect(accessService.hasAbility(user, Actions.read, Post)).toBe(true);
-      expect(accessService.hasAbility(user, Actions.create, Post)).toBe(true);
-      expect(accessService.hasAbility(user, Actions.delete, Post)).toBe(false);
+      expect(await accessService.hasAbility(user, Actions.read, Post)).toBe(true);
+      expect(await accessService.hasAbility(user, Actions.create, Post)).toBe(true);
+      expect(await accessService.hasAbility(user, Actions.delete, Post)).toBe(false);
     });
 
     it('exports AccessService so consuming modules can inject it (issue #905)', async () => {
@@ -98,8 +98,8 @@ describe('CaslModule', () => {
 
       const consumer = moduleRef.get(TestConsumer);
       const user = { id: 'userId', roles: [Roles.customer] };
-      expect(consumer.accessService.hasAbility(user, Actions.read, Post)).toBe(true);
-      expect(consumer.accessService.hasAbility(user, Actions.create, Post)).toBe(true);
+      expect(await consumer.accessService.hasAbility(user, Actions.read, Post)).toBe(true);
+      expect(await consumer.accessService.hasAbility(user, Actions.create, Post)).toBe(true);
     });
 
     it('injected AccessService denies actions not in permissions (issue #905)', async () => {
@@ -126,8 +126,8 @@ describe('CaslModule', () => {
       const service = moduleRef.get(TestService);
       const user = { id: 'userId', roles: [Roles.customer] };
       // customer can read and create, but NOT delete or update
-      expect(service.accessService.hasAbility(user, Actions.delete, Post)).toBe(false);
-      expect(service.accessService.hasAbility(user, Actions.update, Post)).toBe(false);
+      expect(await service.accessService.hasAbility(user, Actions.delete, Post)).toBe(false);
+      expect(await service.accessService.hasAbility(user, Actions.update, Post)).toBe(false);
     });
 
     it('AccessService from forFeature respects superuser role (issue #905)', async () => {
@@ -155,8 +155,8 @@ describe('CaslModule', () => {
       const service = moduleRef.get(TestService);
       const admin = { id: 'adminId', roles: [Roles.admin] };
       // Admin should have unrestricted access even for actions not in permissions
-      expect(service.accessService.hasAbility(admin, Actions.delete, Post)).toBe(true);
-      expect(service.accessService.hasAbility(admin, Actions.manage, Post)).toBe(true);
+      expect(await service.accessService.hasAbility(admin, Actions.delete, Post)).toBe(true);
+      expect(await service.accessService.hasAbility(admin, Actions.manage, Post)).toBe(true);
     });
 
     it('two feature modules get separate AccessService instances with own permissions (issue #905)', async () => {
@@ -214,10 +214,10 @@ describe('CaslModule', () => {
       const user = { id: 'userId', roles: [Roles.customer] };
 
       // PostConsumer's AccessService should know about Post permissions
-      expect(postConsumer.accessService.hasAbility(user, Actions.read, Post)).toBe(true);
+      expect(await postConsumer.accessService.hasAbility(user, Actions.read, Post)).toBe(true);
 
       // CommentConsumer's AccessService should know about Comment permissions
-      expect(commentConsumer.accessService.hasAbility(user, Actions.delete, Comment)).toBe(true);
+      expect(await commentConsumer.accessService.hasAbility(user, Actions.delete, Comment)).toBe(true);
     });
   });
 

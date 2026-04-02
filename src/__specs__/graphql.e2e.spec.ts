@@ -100,6 +100,9 @@ const Mutations = {
   UPDATE_POST_CONDITION_PARAM_NO_HOOK: q(
     'mutation { updatePostConditionParamNoHook(input: { id: "id", userId: "userId", title: "Post title" }) { id userId title } }',
   ),
+  UPDATE_POST_FILTER_PARAM: q(
+    'mutation { updatePostFilterParam(input: { id: "id", userId: "userId", title: "Post title" }) { id userId title } }',
+  ),
   DELETE_POST: q('mutation { deletePost(id: "id") { id userId title } }'),
 };
 
@@ -518,6 +521,25 @@ describe('Graphql resolver with authorization', () => {
     it(`should get conditions proxy without hook`, async () => {
       await graphql(app).send(Mutations.UPDATE_POST_CONDITION_PARAM_NO_HOOK).expect(200);
       expect(postService.update).toBeCalledWith(post, expectedSqlConditions);
+    });
+  });
+
+  describe('CaslFilter decorator', () => {
+    const expectedFilter = { userId: 'userId' };
+
+    beforeEach(async () => {
+      app = await createCaslTestingModule(
+        {
+          getUserFromRequest: () => getUser(Roles.customer),
+        },
+        postService,
+        userService,
+      );
+    });
+
+    it(`should get filter object directly via @CaslFilter()`, async () => {
+      await graphql(app).send(Mutations.UPDATE_POST_FILTER_PARAM).expect(200);
+      expect(postService.update).toBeCalledWith(post, expectedFilter);
     });
   });
 });
