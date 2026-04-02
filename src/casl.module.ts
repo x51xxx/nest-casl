@@ -32,7 +32,7 @@ export class CaslModule {
     return {
       module: CaslModule,
       imports: [],
-      // exports: [AccessService],
+      exports: [AccessService],
       providers: [
         AccessService,
         AbilityFactory,

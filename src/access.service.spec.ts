@@ -230,11 +230,277 @@ describe('AccessService', () => {
       expect(await accessService.canActivateAbility(request, abilityMetadata)).toBeFalsy();
     });
 
+    it('fires subject hook when some rules have conditions and some do not (issue #923)', async () => {
+      // Setup permissions where one rule has conditions and another does not
+      const mixedPermissions: Permissions<Roles, Post> = {
+        everyone({ can }) {
+          can(Actions.read, Post);
+        },
+        customer({ user, can, cannot }) {
+          can(Actions.update, Post, { userId: user.id });
+          cannot(Actions.update, Post, ['userId']);
+        },
+        operator({ can }) {
+          can(Actions.update, Post); // rule WITHOUT conditions
+        },
+      };
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          AccessService,
+          AbilityFactory,
+          {
+            provide: CASL_FEATURE_OPTIONS,
+            useValue: { permissions: mixedPermissions },
+          },
+        ],
+      }).compile();
+
+      const svc = moduleRef.get(AccessService);
+      user = { id: 'userId', roles: [Roles.customer] };
+
+      class PostHookSpy implements SubjectBeforeFilterHook<Post> {
+        public async run() {
+          return { ...new Post(), userId: 'userId' };
+        }
+      }
+
+      class UserHookStub implements UserBeforeFilterHook<User> {
+        public async run() {
+          return user;
+        }
+      }
+
+      const hookInstance = new PostHookSpy();
+      const runSpy = vi.spyOn(hookInstance, 'run');
+
+      const request: AuthorizableRequest = {
+        user,
+        casl: {
+          user,
+          hooks: {
+            subject: hookInstance,
+            user: new UserHookStub(),
+          },
+        },
+        body: {},
+      };
+
+      const abilityMetadata = {
+        action: Actions.update,
+        subject: Post,
+        subjectHook: PostHookSpy,
+      };
+
+      await svc.canActivateAbility(request, abilityMetadata);
+      expect(runSpy).toHaveBeenCalled();
+    });
+
+    it('fires subject hook and denies access when cannot rule has no conditions but can rule has (issue #923)', async () => {
+      const invertedPermissions: Permissions<Roles, Post> = {
+        everyone({ can }) {
+          can(Actions.read, Post);
+        },
+        customer({ user, can, cannot }) {
+          can(Actions.update, Post, { userId: user.id });
+          cannot(Actions.update, Post, { userId: 'blocked' }); // inverted rule with conditions
+        },
+      };
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          AccessService,
+          AbilityFactory,
+          {
+            provide: CASL_FEATURE_OPTIONS,
+            useValue: { permissions: invertedPermissions },
+          },
+        ],
+      }).compile();
+
+      const svc = moduleRef.get(AccessService);
+      user = { id: 'userId', roles: [Roles.customer] };
+
+      class PostHookSpy implements SubjectBeforeFilterHook<Post> {
+        public async run() {
+          return { ...new Post(), userId: 'blocked' };
+        }
+      }
+
+      class UserHookStub implements UserBeforeFilterHook<User> {
+        public async run() {
+          return user;
+        }
+      }
+
+      const hookInstance = new PostHookSpy();
+      const runSpy = vi.spyOn(hookInstance, 'run');
+
+      const request: AuthorizableRequest = {
+        user,
+        casl: {
+          user,
+          hooks: {
+            subject: hookInstance,
+            user: new UserHookStub(),
+          },
+        },
+        body: {},
+      };
+
+      const abilityMetadata = {
+        action: Actions.update,
+        subject: Post,
+        subjectHook: PostHookSpy,
+      };
+
+      const result = await svc.canActivateAbility(request, abilityMetadata);
+      expect(runSpy).toHaveBeenCalled();
+      expect(result).toBe(false);
+    });
+
+    it('fires subject hook and allows access for own post with conditions (issue #923)', async () => {
+      user = { id: 'userId', roles: [Roles.customer] };
+
+      class PostHookOwnPost implements SubjectBeforeFilterHook<Post> {
+        public async run() {
+          return { ...new Post(), userId: 'userId' };
+        }
+      }
+
+      class UserHookStub implements UserBeforeFilterHook<User> {
+        public async run() {
+          return user;
+        }
+      }
+
+      const hookInstance = new PostHookOwnPost();
+      const runSpy = vi.spyOn(hookInstance, 'run');
+
+      const request: AuthorizableRequest = {
+        user,
+        casl: {
+          user,
+          hooks: {
+            subject: hookInstance,
+            user: new UserHookStub(),
+          },
+        },
+        body: {},
+      };
+
+      const abilityMetadata = {
+        action: Actions.update,
+        subject: Post,
+        subjectHook: PostHookOwnPost,
+      };
+
+      const result = await accessService.canActivateAbility(request, abilityMetadata);
+      expect(runSpy).toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it('fires subject hook and denies access for other user post with conditions (issue #923)', async () => {
+      user = { id: 'userId', roles: [Roles.customer] };
+
+      class PostHookOtherPost implements SubjectBeforeFilterHook<Post> {
+        public async run() {
+          return { ...new Post(), userId: 'otherUserId' };
+        }
+      }
+
+      class UserHookStub implements UserBeforeFilterHook<User> {
+        public async run() {
+          return user;
+        }
+      }
+
+      const hookInstance = new PostHookOtherPost();
+      const runSpy = vi.spyOn(hookInstance, 'run');
+
+      const request: AuthorizableRequest = {
+        user,
+        casl: {
+          user,
+          hooks: {
+            subject: hookInstance,
+            user: new UserHookStub(),
+          },
+        },
+        body: {},
+      };
+
+      const abilityMetadata = {
+        action: Actions.update,
+        subject: Post,
+        subjectHook: PostHookOtherPost,
+      };
+
+      const result = await accessService.canActivateAbility(request, abilityMetadata);
+      expect(runSpy).toHaveBeenCalled();
+      expect(result).toBe(false);
+    });
+
+    it('does not fire subject hook when no rules have conditions', async () => {
+      const noConditionsPermissions: Permissions<Roles, Post> = {
+        everyone({ can }) {
+          can(Actions.read, Post);
+        },
+        customer({ can }) {
+          can(Actions.update, Post); // no conditions
+        },
+      };
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          AccessService,
+          AbilityFactory,
+          {
+            provide: CASL_FEATURE_OPTIONS,
+            useValue: { permissions: noConditionsPermissions },
+          },
+        ],
+      }).compile();
+
+      const svc = moduleRef.get(AccessService);
+      user = { id: 'userId', roles: [Roles.customer] };
+
+      class PostHookSpy implements SubjectBeforeFilterHook<Post> {
+        public async run() {
+          return { ...new Post(), userId: 'userId' };
+        }
+      }
+
+      const hookInstance = new PostHookSpy();
+      const runSpy = vi.spyOn(hookInstance, 'run');
+
+      const request: AuthorizableRequest = {
+        user,
+        casl: {
+          user,
+          hooks: {
+            subject: hookInstance,
+            user: new NullUserHook(),
+          },
+        },
+        body: {},
+      };
+
+      const abilityMetadata = {
+        action: Actions.update,
+        subject: Post,
+        subjectHook: PostHookSpy,
+      };
+
+      await svc.canActivateAbility(request, abilityMetadata);
+      expect(runSpy).not.toHaveBeenCalled();
+    });
+
     describe('field restriction', () => {
       user = { id: 'userId', roles: [Roles.customer] };
 
-      function postHookFactory(post: Post): typeof PostHook {
-        return class PostHook implements SubjectBeforeFilterHook<Post> {
+      function postHookFactory(post: Post) {
+        return class PostHook {
           public async run() {
             return post;
           }
@@ -247,8 +513,8 @@ describe('AccessService', () => {
           casl: {
             user,
             hooks: {
-              subject: new postHook(),
-              user: new UserHook(),
+              subject: new postHook() as unknown as SubjectBeforeFilterHook,
+              user: new UserHook() as unknown as UserBeforeFilterHook,
             },
           },
           body: post,
@@ -323,8 +589,8 @@ describe('AccessService', () => {
           casl: {
             user,
             hooks: {
-              subject: new PostHook(),
-              user: new UserHook(),
+              subject: new PostHook() as unknown as SubjectBeforeFilterHook,
+              user: new UserHook() as unknown as UserBeforeFilterHook,
             },
           },
           body: {

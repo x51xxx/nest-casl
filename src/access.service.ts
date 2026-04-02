@@ -93,10 +93,9 @@ export class AccessService {
     let userAbilities = this.abilityFactory.createForUser(user, Ability);
     const relevantRules = userAbilities.rulesFor(ability.action, ability.subject);
 
-    req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
-
-    // If no relevant rules with conditions or no subject hook exists check against subject class
-    if (!relevantRules.every((rule) => rule.conditions) || !ability.subjectHook) {
+    // If no relevant rules have conditions or no subject hook exists, check against subject class
+    if (!relevantRules.some((rule) => rule.conditions) || !ability.subjectHook) {
+      req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
       return userAbilities.can(ability.action, ability.subject);
     }
 
@@ -105,6 +104,7 @@ export class AccessService {
     req.setSubject(subjectInstance);
 
     if (!subjectInstance) {
+      req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
       return userAbilities.can(ability.action, ability.subject);
     }
 
@@ -112,6 +112,9 @@ export class AccessService {
     if (finalUser && finalUser !== userProxy.getFromRequest()) {
       userAbilities = this.abilityFactory.createForUser(finalUser);
     }
+
+    // Set conditions after user hook so they reflect the final user's abilities
+    req.setConditions(new ConditionsProxy(userAbilities, ability.action, ability.subject));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actualSubject = subject(ability.subject as any, subjectInstance);

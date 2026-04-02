@@ -15,8 +15,7 @@ export class TupleSubjectHook<Service> implements SubjectBeforeFilterHook {
   constructor(
     private service: Service,
     private runFunc: (service: Service, request: AuthorizableRequest) => Promise<AnyObject | undefined>,
-  ) {
-  }
+  ) {}
 
   public async run(request: AuthorizableRequest): Promise<AnyObject | undefined> {
     return this.runFunc(this.service, request);

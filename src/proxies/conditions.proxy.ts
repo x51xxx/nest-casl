@@ -14,7 +14,11 @@ function convertToMongoQuery(rule: AnyMongoAbility['rules'][number]) {
 }
 
 export class ConditionsProxy {
-  constructor(private abilities: AnyAbility, private action: string, private subject: Subject) {}
+  constructor(
+    private abilities: AnyAbility,
+    private action: string,
+    private subject: Subject,
+  ) {}
 
   public toAst(): Condition | null {
     return rulesToAST(this.abilities, this.action, this.subject);

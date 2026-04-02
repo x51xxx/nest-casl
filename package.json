@@ -1,17 +1,17 @@
 {
-  "name": "nest-casl",
-  "version": "1.6.6",
+  "name": "@trishchuk/nest-casl",
+  "version": "1.0.0",
   "description": "Access control for Nestjs with CASL",
   "author": "Denis Grankin @ Jerry",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bugs": {
-    "url": "https://github.com/getjerry/nest-casl/issues"
+    "url": "https://github.com/x51xxx/nest-casl/issues"
   },
-  "homepage": "https://github.com/getjerry/nest-casl#readme",
+  "homepage": "https://github.com/x51xxx/nest-casl#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/getjerry/nest-casl.git"
+    "url": "git+https://github.com/x51xxx/nest-casl.git"
   },
   "keywords": [
     "authorization",

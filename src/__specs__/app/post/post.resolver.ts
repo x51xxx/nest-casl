@@ -22,7 +22,10 @@ import { UpdatePostInput } from './dtos/update-post-input.dto';
 
 @Resolver(() => Post)
 export class PostResolver {
-  constructor(private postService: PostService, private accessService: AccessService) {}
+  constructor(
+    private postService: PostService,
+    private accessService: AccessService,
+  ) {}
 
   @Query(() => Post)
   @UseGuards(AccessGuard)

@@ -1,4 +1,4 @@
-import { Ability, AnyAbility, AbilityTuple, AbilityBuilder, Subject } from '@casl/ability';
+import { Ability, AnyAbility, AbilityBuilder, AbilityTuple, Subject } from '@casl/ability';
 import { AnyClass } from '@casl/ability/dist/types/types';
 import { DefaultActions } from '../actions.enum';
 import { AuthorizableUser } from './authorizable-user.interface';
